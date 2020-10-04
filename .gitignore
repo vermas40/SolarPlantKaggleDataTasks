@@ -16,6 +16,7 @@ __pycache__
 *~
 *.bak
 .ipynb_checkpoints
+\pipelines\.ipynb_checkpoints
 .tox
 .DS_Store
 \#*#
