@@ -1,0 +1,150 @@
+import pandas as pd
+import numpy as np
+import os
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, mean_absolute_percentage_error
+from sklearn.preprocessing import StandardScaler
+import warnings
+from merf import merf
+warnings.filterwarnings('ignore')
+
+os.chdir(r'//Users//mac_air//Documents//Documents//Side Projects//Kaggle_Anomaly_Detection//Scripts')
+import ads_creation as ads_crtn
+import eda_analysis as eda
+import feature_engg as feat_engg
+from constants import ATTR, TIME_INVARIANT_ATTR, TIME_VARIANT_ATTR, SPLIT_PCT
+
+
+def panel_wise_model(df,panel_id_col,label,features=ATTR):
+    '''
+    This function creates one random forest model for each panel in ADS
+    and returns 2 dictionaries housing the models and metrics
+    '''
+
+    model_dict = {}
+    metric_dict = {}
+    
+    for panel in df[panel_id_col].unique():
+        model_df = df.loc[df[panel_id_col] == panel,]
+        train_ads, test_ads = eda.train_test_split(model_df,panel_id_col,SPLIT_PCT)
+
+        scaler = StandardScaler()
+        scaler.fit(train_ads[features])
+
+        train_ads_scaled = scaler.transform(train_ads[features])
+        test_ads_scaled = scaler.transform(test_ads[features])
+        print('Modelling for panel:',panel)
+
+        model_dict[panel] = RandomForestRegressor(random_state=42)
+        model_dict[panel].fit(train_ads_scaled, train_ads[label])
+
+        y_pred = model_dict[panel].predict(test_ads_scaled)
+        
+        mape = mean_absolute_percentage_error(test_ads[label],y_pred)
+        mae = mean_absolute_error(test_ads[label],y_pred)
+        mse = mean_squared_error(test_ads[label],y_pred)
+        r2 = r2_score(test_ads[label],y_pred)
+
+        metric_dict[panel] = (mape,mae,mse,r2)
+
+    return model_dict, metric_dict
+
+#creating ads + outlier treatment x2
+#TODO: Can you do Z score treatment twice?
+#Even with stricter Z scores, the outliers are not getting capped
+#implemented winsorizing for outlier treatment
+if __name__ == '__main__':
+    ads = ads_crtn.create_ads()
+    ads = ads.groupby('INVERTER_ID').apply(lambda x: eda.outlier_treatment(x,'INVERTER_ID'))
+
+    #making ADS stationary
+    non_stnry_invtr_list = eda.return_non_stnry_invtr_list(ads,'INVERTER_ID')
+    ads = eda.make_ads_stnry(ads,non_stnry_invtr_list,'INVERTER_ID')
+
+    #getting lag values for the target variables
+    lag_values = ads[['INVERTER_ID','PER_TS_YIELD']].groupby('INVERTER_ID').agg(lambda x: eda.pick_pacf(x))
+    distinct_lag_values = np.unique(lag_values.PER_TS_YIELD.sum())
+
+    #creating lagged features
+    ads = feat_engg.create_features(ads,'PER_TS_YIELD',distinct_lag_values)
+
+    #creating train & test split for modelling
+    train_ads, test_ads = eda.train_test_split(ads,'INVERTER_ID',0.8)
+
+
+    #Experiment 1
+    #one Random Forest model for all panels, only one lagged feature, no scaling
+
+    features = [feature for feature in ATTR if feature not in ['PER_TS_YIELD','INVERTER_ID']]
+    features.append('PER_TS_YIELD_lag_1')
+    label = 'PER_TS_YIELD'
+
+    model = RandomForestRegressor(random_state=42)
+    model.fit(train_ads[features],train_ads[label])
+    y_pred = model.predict(test_ads[features])
+
+    #mape is not preferred here because our time series values can be 0 and mape becomes inf if y_true can be 0
+    #and hence unreliable
+
+    #mse is scale dependent, therefore using it across different time series is not possible
+    #r-squared is the most reliable metric that can be used here and we will go with that
+    mape = mean_absolute_percentage_error(test_ads[label],y_pred)
+    mae = mean_absolute_error(test_ads[label],y_pred)
+    mse = mean_squared_error(test_ads[label],y_pred)
+    r2 = r2_score(test_ads[label],y_pred)
+
+    #Experiment 2
+    #Same setup as above but with scaling done
+
+    scaler = StandardScaler()
+    scaler.fit(train_ads[features])
+
+    train_ads_scaled = scaler.transform(train_ads[features])
+    test_ads_scaled = scaler.transform(test_ads[features])
+
+    model = RandomForestRegressor(random_state=42)
+    model.fit(train_ads_scaled,train_ads[label])
+
+    y_pred = model.predict(test_ads_scaled)
+
+    mape = mean_absolute_percentage_error(test_ads[label],y_pred)
+    mae = mean_absolute_error(test_ads[label],y_pred)
+    mse = mean_squared_error(test_ads[label],y_pred)
+    r2 = r2_score(test_ads[label],y_pred)
+
+    #Experiment 3
+    #Making individual models for each panel and seeing the accuracy 
+    #Seeing very varied performance across different panels, some have 99%, some have 65 and some have negative R2
+
+
+    models, metrics = panel_wise_model(ads,'INVERTER_ID','PER_TS_YIELD')
+
+    #lets look at the inverters with low accuracy scores
+    low_acc_invtr = [(key,metrics[key][3]) for key in metrics.keys() if metrics[key][3] < 0.9]
+    invtr_list = [val_pair[0] for val_pair in low_acc_invtr]
+
+    #these are all the inverters that had high amount of outliers in them
+    eda.get_box_plot(ads.loc[ads['INVERTER_ID'].isin(invtr_list),ATTR])
+    #as confirmed by line plots as well
+    eda.line_plot(ads.loc[ads['INVERTER_ID'].isin(invtr_list),['INVERTER_ID','PER_TS_YIELD','DATE']],'DATE','PER_TS_YIELD','INVERTER_ID')
+
+    #earlier on we were getting low accuracies for some panels because of outliers
+    #but with winsorizing outlier treatment average accuracy is around 99%
+
+
+    #Experiment 4
+    #Creating a mixed effects random forest model
+    features_time_variant = [feature for feature in TIME_VARIANT_ATTR if feature not in ['PER_TS_YIELD','INVERTER_ID']]
+    features_time_variant.append('PER_TS_YIELD_lag_1')
+    label = 'PER_TS_YIELD'
+
+    merf = merf.MERF()
+    merf.fit(train_ads[TIME_INVARIANT_ATTR], train_ads[TIME_VARIANT_ATTR], train_ads['INVERTER_ID'], train_ads[label])
+    #merf model took a lot of time. Hence got abandoned
+
+
+    #with these experiments, one mistake we have made is that we cannot predict for the future
+    #without having the future values of our input variables
+    #what we have done excellently till now if panel regression; However, the task is panel forecasting
+    #we might not have these values with us in the future so our model could be a bust. We can remedy this
+    #by creating a dataset with lagged variables
