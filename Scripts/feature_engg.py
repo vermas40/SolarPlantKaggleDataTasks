@@ -1,6 +1,9 @@
 import pandas as pd
 import numpy as np
 import os
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import StandardScaler
+from sklearn.feature_selection import RFECV
 
 #importing user defined functions
 os.chdir(r'//Users//mac_air//Documents//Documents//Side Projects//Kaggle_Anomaly_Detection//Scripts')
@@ -17,17 +20,30 @@ def create_lag_feature(df,variable_name,lags):
         df[variable_name + '_lag_' + str(lag)] = df[variable_name].shift(lag)
     return df
 
-def create_features(df,variable_name,distinct_lag_values):
+def create_lagged_features(df,variable_list,lags_list,panel_id_col,date_col):
     '''
     Creates the lagged feature for the target variable
     '''
-    df = create_lag_feature_placeholder(df,variable_name,distinct_lag_values)
-    df = df.groupby('INVERTER_ID').apply(lambda x: create_lag_feature(x,variable_name,distinct_lag_values))
+    for variable in variable_list:
+        df = create_lag_feature_placeholder(df,variable,lags_list)
+        df = df.groupby(panel_id_col).apply(lambda x: create_lag_feature(x,variable,lags_list))
     df = df.dropna()
     df = df.reset_index(drop=True)
-    df = df.sort_values(by=['INVERTER_ID','DATE'],ignore_index=True)
+    df = df.sort_values(by=[panel_id_col, date_col],ignore_index=True)
     return df
 
+def rfe_feature_selection(train_df,estimator,features,label):
+    scaler = StandardScaler()
+    scaler.fit(train_df[features])
+
+    train_df_scaled = scaler.transform(train_df[features])
+    selector = RFECV(estimator, step=1, cv=5)
+    selector = selector.fit(train_df_scaled, train_df[label])
+
+    feature_set = [sel_feature[1] for sel_feature in zip(selector.ranking_,features) if sel_feature[0] == 1]
+    
+    return feature_set
+    
 if __name__ == '__main__':
     #creating ads + outlier treatment
     ads = ads_crtn.create_ads()

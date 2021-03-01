@@ -11,11 +11,12 @@ def merge_data(plant_name):
     '''
 
     #reading in the file
-    gen_data = pd.read_csv('data/{}_Generation_Data.csv'.format(plant_name))
+    path = '//Users//mac_air//Documents//Documents//Side Projects//Kaggle_Anomaly_Detection'
+    gen_data = pd.read_csv(path + '/data/{}_Generation_Data.csv'.format(plant_name))
     #formatting the date to date formate
     gen_data['DATE_TIME'] = gen_data['DATE_TIME'].apply(lambda x: datetime.strptime(x, "%d-%m-%Y %H:%M"))
     
-    sns_weather_data = pd.read_csv('data/{}_Weather_Sensor_Data.csv'.format(plant_name))
+    sns_weather_data = pd.read_csv(path + '/data/{}_Weather_Sensor_Data.csv'.format(plant_name))
     #formatting the date
     sns_weather_data['DATE_TIME'] = sns_weather_data['DATE_TIME'].apply(lambda x: datetime.strptime(x, "%Y-%m-%d %H:%M:%S"))
     

@@ -15,7 +15,7 @@ import feature_engg as feat_engg
 from constants import ATTR, TIME_INVARIANT_ATTR, TIME_VARIANT_ATTR, SPLIT_PCT
 
 
-def panel_wise_model(df,panel_id_col,label,features=ATTR):
+def panel_wise_model(train,test,panel_id_col,label,features=ATTR):
     '''
     This function creates one random forest model for each panel in ADS
     and returns 2 dictionaries housing the models and metrics
@@ -24,26 +24,26 @@ def panel_wise_model(df,panel_id_col,label,features=ATTR):
     model_dict = {}
     metric_dict = {}
     
-    for panel in df[panel_id_col].unique():
-        model_df = df.loc[df[panel_id_col] == panel,]
-        train_ads, test_ads = eda.train_test_split(model_df,panel_id_col,SPLIT_PCT)
+    for panel in train[panel_id_col].unique():
+        train_df = train.loc[train[panel_id_col]==panel,]
+        test_df = test.loc[test[panel_id_col]==panel,]
 
         scaler = StandardScaler()
-        scaler.fit(train_ads[features])
+        scaler.fit(train_df[features])
 
-        train_ads_scaled = scaler.transform(train_ads[features])
-        test_ads_scaled = scaler.transform(test_ads[features])
+        train_df_scaled = scaler.transform(train_df[features])
+        test_df_scaled = scaler.transform(test_df[features])
         print('Modelling for panel:',panel)
 
         model_dict[panel] = RandomForestRegressor(random_state=42)
-        model_dict[panel].fit(train_ads_scaled, train_ads[label])
+        model_dict[panel].fit(train_df_scaled, train_df[label])
 
-        y_pred = model_dict[panel].predict(test_ads_scaled)
+        y_pred = model_dict[panel].predict(test_df_scaled)
         
-        mape = mean_absolute_percentage_error(test_ads[label],y_pred)
-        mae = mean_absolute_error(test_ads[label],y_pred)
-        mse = mean_squared_error(test_ads[label],y_pred)
-        r2 = r2_score(test_ads[label],y_pred)
+        mape = mean_absolute_percentage_error(test_df[label],y_pred)
+        mae = mean_absolute_error(test_df[label],y_pred)
+        mse = mean_squared_error(test_df[label],y_pred)
+        r2 = r2_score(test_df[label],y_pred)
 
         metric_dict[panel] = (mape,mae,mse,r2)
 
