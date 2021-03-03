@@ -12,7 +12,8 @@ os.chdir(r'//Users//mac_air//Documents//Documents//Side Projects//Kaggle_Anomaly
 import ads_creation as ads_crtn
 import eda_analysis as eda
 import feature_engg as feat_engg
-from constants import ATTR, TIME_INVARIANT_ATTR, TIME_VARIANT_ATTR, SPLIT_PCT
+import winsorize as wz
+from constants import ATTR, TIME_INVARIANT_ATTR, TIME_VARIANT_ATTR, SPLIT_PCT, OUTLIER_METHOD
 
 
 def panel_wise_model(train,test,panel_id_col,label,features=ATTR):
@@ -66,23 +67,29 @@ def panel_wise_model(train,test,panel_id_col,label,features=ATTR):
 #implemented winsorizing for outlier treatment
 if __name__ == '__main__':
     ads = ads_crtn.create_ads()
-    ads = ads.groupby('INVERTER_ID').apply(lambda x: eda.outlier_treatment(x,'INVERTER_ID'))
+    train_ads, test_ads = eda.train_test_split(ads,'INVERTER_ID',SPLIT_PCT)
+
+    outlier_feature = [feature for feature in ATTR if feature != 'TOTAL_YIELD'] 
+    clip_model = wz.winsorize(OUTLIER_METHOD)
+    clip_model.fit(train_ads[outlier_feature],'INVERTER_ID')
+    train_ads[outlier_feature] = clip_model.transform(train_ads[outlier_feature])
+    test_ads[outlier_feature] = clip_model.transform(test_ads[outlier_feature])
+
 
     #making ADS stationary
-    non_stnry_invtr_list = eda.return_non_stnry_invtr_list(ads,'INVERTER_ID')
-    ads = eda.make_ads_stnry(ads,non_stnry_invtr_list,'INVERTER_ID')
-
+    non_stnry_invtr_list = eda.return_non_stnry_invtr_list(train_ads,'INVERTER_ID')
+    train_ads = eda.make_ads_stnry(train_ads,non_stnry_invtr_list,'INVERTER_ID','DATE')
+    
+    non_stnry_invtr_list = eda.return_non_stnry_invtr_list(test_ads,'INVERTER_ID')
+    test_ads = eda.make_ads_stnry(test_ads,non_stnry_invtr_list,'INVERTER_ID','DATE')
+    
     #getting lag values for the target variables
-    lag_values = ads[['INVERTER_ID','PER_TS_YIELD']].groupby('INVERTER_ID').agg(lambda x: eda.pick_pacf(x))
+    lag_values = train_ads[['INVERTER_ID','PER_TS_YIELD']].groupby('INVERTER_ID').agg(lambda x: eda.pick_pacf(x))
     distinct_lag_values = np.unique(lag_values.PER_TS_YIELD.sum())
 
     #creating lagged features
-    ads = feat_engg.create_features(ads,'PER_TS_YIELD',distinct_lag_values)
-
-    #creating train & test split for modelling
-    train_ads, test_ads = eda.train_test_split(ads,'INVERTER_ID',0.8)
-
-
+    train_ads = feat_engg.create_lagged_features(train_ads,['PER_TS_YIELD'],distinct_lag_values,'INVERTER_ID','DATE')
+    test_ads = feat_engg.create_lagged_features(test_ads,['PER_TS_YIELD'],distinct_lag_values,'INVERTER_ID','DATE')
     #Experiment 1
     #one Random Forest model for all panels, only one lagged feature, no scaling
 
@@ -127,8 +134,7 @@ if __name__ == '__main__':
     #Making individual models for each panel and seeing the accuracy 
     #Seeing very varied performance across different panels, some have 99%, some have 65 and some have negative R2
 
-
-    models, metrics = panel_wise_model(ads,'INVERTER_ID','PER_TS_YIELD')
+    models, metrics = panel_wise_model(train_ads,test_ads,'INVERTER_ID','PER_TS_YIELD',features)
 
     #lets look at the inverters with low accuracy scores
     low_acc_invtr = [(key,metrics[key][3]) for key in metrics.keys() if metrics[key][3] < 0.9]

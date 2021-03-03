@@ -65,7 +65,7 @@ def complt_ts_panel_lvl(df,panel_id_col,date_col):
     df = df.groupby(panel_id_col).apply(lambda x: ads_crtn.missing_value_treatment(x))
     return df
 
-def get_optimal_lag(train_df,init_lag,pass_threshold,mode):
+def get_optimal_lag(train_df,init_lag,pass_threshold,mode,feature_selection=False):
     '''
     This function gets the lag that is most optimal in predicting the target variable
     Either in isolated mode or cumulative mode
@@ -101,9 +101,11 @@ def get_optimal_lag(train_df,init_lag,pass_threshold,mode):
 
         features = [feature for feature in train_df_lagged.columns if '_lag_' in feature]
         features = features + TIME_INVARIANT_ATTR
-        #feat_set = feat_engg.rfe_feature_selection(train_df_lagged,
-        #                                    RandomForestRegressor(random_state=42),
-        #                                    features,'PER_TS_YIELD')
+        
+        if feature_selection == True:
+            features = feat_engg.rfe_feature_selection(train_df_lagged,
+                                                RandomForestRegressor(random_state=42),
+                                                features,'PER_TS_YIELD')
 
         models,metrics = regr.panel_wise_model(train_df_lagged,validation_df_lagged,'INVERTER_ID','PER_TS_YIELD',
                                               features=features)
@@ -117,6 +119,24 @@ def get_optimal_lag(train_df,init_lag,pass_threshold,mode):
             lag -= 8
             lag_list.append(lag)
     return models,metrics
+
+def fwd_step_rf_model(train_df,test_df,model_dict,panel_name):
+    
+    predictions = []
+    scaler = StandardScaler()
+    scaler.fit(train_df.values.reshape(-1,1))
+    train_df_scaled = scaler.transform(train_df.values.reshape(-1,1))
+    pred_obs = train_df_scaled[-1]
+    
+    for iter in range(len(test_df)):
+        if iter == 0:
+            pred_obs = model_dict[panel_name].predict(pred_obs.reshape(-1,1))
+            predictions.append(pred_obs)
+        else:
+            pred_obs = model_dict[panel_name].predict(scaler.transform(pred_obs.reshape(-1,1)))
+            predictions.append(pred_obs)
+
+    return predictions
 
 #ADS creation, train-test split, outlier treatment
 ads = ads_crtn.create_ads()
@@ -144,21 +164,22 @@ test_ads = complt_ts_panel_lvl(test_ads,'INVERTER_ID','DATE')
 
 #making ADS stationary
 non_stnry_invtr_list = eda.return_non_stnry_invtr_list(train_ads,'INVERTER_ID')
-train_ads = eda.make_ads_stnry(train_ads,non_stnry_invtr_list,'INVERTER_ID')
+train_ads = eda.make_ads_stnry(train_ads,non_stnry_invtr_list,'INVERTER_ID','DATE')
 
 non_stnry_invtr_list = eda.return_non_stnry_invtr_list(test_ads,'INVERTER_ID')
-test_ads = eda.make_ads_stnry(test_ads,non_stnry_invtr_list,'INVERTER_ID')
+test_ads = eda.make_ads_stnry(test_ads,non_stnry_invtr_list,'INVERTER_ID','DATE')
 
-#creating lagged features
-train_ads = feat_engg.create_lagged_features(train_ads,TIME_VARIANT_ATTR,[192],'INVERTER_ID','DATE')
-test_ads = feat_engg.create_lagged_features(test_ads, TIME_VARIANT_ATTR, [192], 'INVERTER_ID','DATE')
+#Creating lagged features which are lagged by exactly 2 days so that they can then be used for prediction
+
+train_ads_exp = feat_engg.create_lagged_features(train_ads,TIME_VARIANT_ATTR,[192],'INVERTER_ID','DATE')
+test_ads_exp = feat_engg.create_lagged_features(test_ads, TIME_VARIANT_ATTR, [192], 'INVERTER_ID','DATE')
 
 features = [feature + '_lag_192' for feature in TIME_VARIANT_ATTR]
 features = features + TIME_INVARIANT_ATTR
 
-models,metrics = regr.panel_wise_model(train_ads,test_ads,'INVERTER_ID','PER_TS_YIELD',features=features)
+models,metrics = regr.panel_wise_model(train_ads_exp,test_ads_exp,'INVERTER_ID','PER_TS_YIELD',features=features)
 
-low_acc_invtr = [(key,metrics[key][3]) for key in metrics.keys() if metrics[key][3] < 0.8]
+low_acc_invtr = [(key,metrics[key][3]) for key in metrics.keys() if metrics[key][3] < 0.9]
 invtr_list = [val_pair[0] for val_pair in low_acc_invtr]
 
 #these are all the inverters that had high amount of outliers in them
@@ -174,12 +195,12 @@ eda.line_plot(ads.loc[ads['INVERTER_ID'].isin(invtr_list),['INVERTER_ID','PER_TS
 #Performing rfecv based on RF on the panels that gave poor accuracy in the previous step
 metrics_rfe = {}
 for invertor in invtr_list:
-    feat_set = feat_engg.rfe_feature_selection(train_ads.loc[train_ads['INVERTER_ID']==invertor,],
+    feat_set = feat_engg.rfe_feature_selection(train_ads_exp.loc[train_ads_exp['INVERTER_ID']==invertor,],
                                                 RandomForestRegressor(random_state=42),
                                                 features,'PER_TS_YIELD')
     
-    models,metrics = regr.panel_wise_model(train_ads.loc[train_ads['INVERTER_ID']==invertor,],
-                                            test_ads.loc[test_ads['INVERTER_ID']==invertor,],
+    models,metrics = regr.panel_wise_model(train_ads_exp.loc[train_ads_exp['INVERTER_ID']==invertor,],
+                                            test_ads_exp.loc[test_ads_exp['INVERTER_ID']==invertor,],
                                             'INVERTER_ID',
                                             'PER_TS_YIELD',features=feat_set)
     print('Added metric for :',invertor)
@@ -192,29 +213,9 @@ for invertor in invtr_list:
 #Experiment 3
 #Finding the lag which gives the best accuracy, starting from 2 days out and moving closer to t-1
 #All the different lags are looked at in isolation or cumulatively
-#Recreating the original dataset
-
 #conducting this experiment with only one panel, if successful only then will scale up to other panels
 
-ads = ads_crtn.create_ads()
-train_ads, test_ads = eda.train_test_split(ads,'INVERTER_ID',SPLIT_PCT)
-
-outlier_feature = [feature for feature in ATTR if feature != 'TOTAL_YIELD'] 
-clip_model = wz.winsorize(OUTLIER_METHOD)
-clip_model.fit(train_ads[outlier_feature],'INVERTER_ID')
-train_ads[outlier_feature] = clip_model.transform(train_ads[outlier_feature])
-test_ads[outlier_feature] = clip_model.transform(test_ads[outlier_feature])
-
-train_ads = complt_ts_panel_lvl(train_ads,'INVERTER_ID','DATE')
-test_ads = complt_ts_panel_lvl(test_ads,'INVERTER_ID','DATE')
-
-non_stnry_invtr_list = eda.return_non_stnry_invtr_list(train_ads,'INVERTER_ID')
-train_ads = eda.make_ads_stnry(train_ads,non_stnry_invtr_list,'INVERTER_ID')
-
-non_stnry_invtr_list = eda.return_non_stnry_invtr_list(test_ads,'INVERTER_ID')
-test_ads = eda.make_ads_stnry(test_ads,non_stnry_invtr_list,'INVERTER_ID')
-
-trial_df = train_ads.loc[train_ads['INVERTER_ID']==invtr_list[0],]
+trial_df = train_ads.loc[train_ads['INVERTER_ID']==invtr_list[1],]
 
 #running it in isolated mode first
 try_model,try_metric = get_optimal_lag(trial_df,192,0.8,'isolated')
@@ -223,4 +224,39 @@ try_model,try_metric = get_optimal_lag(trial_df,192,0.8,'isolated')
 #better performance as compared to before but still did not cross 80% on validation dataset
 try_model,try_metric = get_optimal_lag(trial_df,192,0.8,'cumulative')
 
+#Experiment 4
+#Tried to get optimal lag with feature selection & ran the code on google colab
+#it took a lot of time and did not give favorable results
 
+#Experiment 5
+#Forecast only 15 min in advance and use that forecast as input and forecast for another 15 min
+
+train_ads_exp = feat_engg.create_lagged_features(train_ads,['PER_TS_YIELD'],[1],'INVERTER_ID','DATE')
+test_ads_exp = feat_engg.create_lagged_features(test_ads, ['PER_TS_YIELD'], [1], 'INVERTER_ID','DATE')
+
+features = [feature for feature in train_ads_exp.columns if '_lag_' in feature]
+
+models,metrics = regr.panel_wise_model(train_ads_exp,test_ads_exp,'INVERTER_ID','PER_TS_YIELD',features=features)
+
+low_acc_invtr = [(key,metrics[key][3]) for key in metrics.keys() if metrics[key][3] < 0.8]
+invtr_list = [val_pair[0] for val_pair in low_acc_invtr]
+
+#Checking how the single step forward model works
+fwd_models = {}
+for invtr in invtr_list:
+    print('Modelling for panel: ',invtr)
+    preds = fwd_step_rf_model(train_ads_exp.loc[train_ads_exp['INVERTER_ID'] == invtr,features],
+                            test_ads_exp.loc[test_ads_exp['INVERTER_ID'] == invtr,features],
+                            models,invtr)
+
+
+    y_pred = [prediction for sublist in preds for prediction in sublist]
+
+    r2 = r2_score(test_ads_exp.loc[test_ads_exp['INVERTER_ID'] == invtr,'PER_TS_YIELD'],y_pred)
+    fwd_models[invtr] = r2
+
+#the models failed miserable with all of them being worse than an average model!
+#This marks the end of supervised methods for forecasting into the future
+#They have not performed well and maybe out of depth when it comes to forecasting into the future
+#and not just approximating a function
+#in the next module, we can look at the performance of actual time series forecast models
