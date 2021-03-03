@@ -19,6 +19,17 @@ def panel_wise_model(train,test,panel_id_col,label,features=ATTR):
     '''
     This function creates one random forest model for each panel in ADS
     and returns 2 dictionaries housing the models and metrics
+
+    Input:
+    1. train: pandas dataframe, this is the training dataset
+    2. test: pandas dataframe, this is the testing dataset
+    3. panel_id_col: str, this is the name of the column that contains the panel IDs
+    4. label: str, target variable
+    5. features: list, this is the list of variables to be used for model creation
+
+    Return:
+    1. model_dict: python dictionary, this dict contains model objects for each panel
+    2. metric_dict: python dictionary, this dict contains error metrics for each panel
     '''
 
     model_dict = {}

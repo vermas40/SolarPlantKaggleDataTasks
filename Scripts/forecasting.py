@@ -4,7 +4,6 @@ import os
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, mean_absolute_percentage_error
 from sklearn.preprocessing import StandardScaler
-
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -19,6 +18,13 @@ from constants import ATTR, OUTLIER_METHOD, TIME_INVARIANT_ATTR, TIME_VARIANT_AT
 def create_ts_list(df,date_col):
     '''
     This function creates the list of timestamps from first ts to last ts
+
+    Input:
+    1. df: pandas dataframe, this is the ads subsetted for one panel
+    2. date_col: str, this is the name of the column containing the dates
+
+    Return
+    1. dates: pandas dataframe, containing all the timestamps from start to end
     '''
     dates = pd.date_range(start=df[date_col].min(), end = df[date_col].max(),freq = '15min')
     dates = dates.to_frame(index=False)
@@ -28,18 +34,89 @@ def create_ts_list(df,date_col):
 def complt_ts(df,date_col):
     '''
     This function introduces the missing time stamps in ads
+
+    Input:
+    1. df: pandas dataframe, this is the ads subsetted for one panel
+    2. date_col: str, this is the name of the column containing the dates
+
+    Return
+    1. df: pandas dataframe, containing all the timestamps from start to end
     '''
     date_list = create_ts_list(df,date_col)
     df = pd.merge(left=date_list,right=df,how='left', on='DATE')
     return df
 
 def complt_ts_panel_lvl(df,panel_id_col,date_col):
+    '''
+    This function completes the time stamps for all panels and applies MVT as well
+
+    Input:
+    1. df: pandas dataframe, this is the ads for which timestamps need to be completed
+    2. panel_id_col: str, the name of the column containing the panel IDs
+    3. date_col, str, the name of the column containing the dates
+
+    Returns
+    1. df: pandas dataframe, containing all the timestamps from start to end
+    '''
     df = df.groupby(panel_id_col).apply(lambda x: complt_ts(x, date_col))
     df = df.reset_index(drop=True)
     #if we dont do this ffill here then the all the obs for inverter ids won't reach
     df[panel_id_col] = df[panel_id_col].ffill()
     df = df.groupby(panel_id_col).apply(lambda x: ads_crtn.missing_value_treatment(x))
     return df
+
+def get_optimal_lag(train_df,init_lag,pass_threshold,mode):
+    '''
+    This function gets the lag that is most optimal in predicting the target variable
+    Either in isolated mode or cumulative mode
+
+    Input:
+    1. train_df: pandas dataframe, this is the ads
+    2. init_lag: int, the largest lag to begin with
+    3. pass_threshold: float, the minimum r-squared values required
+    4. mode: str, isolated or cumulative mode
+    - Isolated mode: just creates one set of lags and check in silo
+    - Cumulative mode: creates a group of lags like 2 day and 1 day lagged variables and checks accuracy together
+
+    Return:
+    1. model_dict: python dictionary, this dict contains model objects for each panel
+    2. metric_dict: python dictionary, this dict contains error metrics for each panel
+    '''
+
+    #Creating a validation df because here we will be choosing the optimal lag
+    #this is a form of tuning and test dataset should not be used
+    train_df,validation_df = eda.train_test_split(train_df,'INVERTER_ID',0.9)
+    r2 = 0
+    lag = init_lag
+    lag_list = [init_lag]
+
+    #while loop runs till the time the condition is true
+    #here we want the loop to stop as soon as one condition is met and the condition to become false
+    #if we do or between the two conditions, while loop will still keep running because 0 + 1 = 1 and it will keep running
+    #but if we put 'and' then 0 * 1 = 0 and we get the desired result
+    while (r2 < pass_threshold) and (lag > 0):
+        print('Doing for lag: ',lag)
+        train_df_lagged = feat_engg.create_lagged_features(train_df,TIME_VARIANT_ATTR,lag_list,'INVERTER_ID','DATE')
+        validation_df_lagged = feat_engg.create_lagged_features(validation_df,TIME_VARIANT_ATTR,lag_list,'INVERTER_ID','DATE')
+
+        features = [feature for feature in train_df_lagged.columns if '_lag_' in feature]
+        features = features + TIME_INVARIANT_ATTR
+        #feat_set = feat_engg.rfe_feature_selection(train_df_lagged,
+        #                                    RandomForestRegressor(random_state=42),
+        #                                    features,'PER_TS_YIELD')
+
+        models,metrics = regr.panel_wise_model(train_df_lagged,validation_df_lagged,'INVERTER_ID','PER_TS_YIELD',
+                                              features=features)
+        r2 = metrics[train_df_lagged['INVERTER_ID'].unique()[0]][3]
+        print(r2)
+
+        if mode == 'isolated':
+            lag -= 8
+            lag_list = [lag]
+        elif mode == 'cumulative':
+            lag -= 8
+            lag_list.append(lag)
+    return models,metrics
 
 #ADS creation, train-test split, outlier treatment
 ads = ads_crtn.create_ads()
@@ -110,3 +187,40 @@ for invertor in invtr_list:
 
 #No improvemnt through rfecv as well, maybe because all the features are being taken as important
 #which does not change anything
+
+
+#Experiment 3
+#Finding the lag which gives the best accuracy, starting from 2 days out and moving closer to t-1
+#All the different lags are looked at in isolation or cumulatively
+#Recreating the original dataset
+
+#conducting this experiment with only one panel, if successful only then will scale up to other panels
+
+ads = ads_crtn.create_ads()
+train_ads, test_ads = eda.train_test_split(ads,'INVERTER_ID',SPLIT_PCT)
+
+outlier_feature = [feature for feature in ATTR if feature != 'TOTAL_YIELD'] 
+clip_model = wz.winsorize(OUTLIER_METHOD)
+clip_model.fit(train_ads[outlier_feature],'INVERTER_ID')
+train_ads[outlier_feature] = clip_model.transform(train_ads[outlier_feature])
+test_ads[outlier_feature] = clip_model.transform(test_ads[outlier_feature])
+
+train_ads = complt_ts_panel_lvl(train_ads,'INVERTER_ID','DATE')
+test_ads = complt_ts_panel_lvl(test_ads,'INVERTER_ID','DATE')
+
+non_stnry_invtr_list = eda.return_non_stnry_invtr_list(train_ads,'INVERTER_ID')
+train_ads = eda.make_ads_stnry(train_ads,non_stnry_invtr_list,'INVERTER_ID')
+
+non_stnry_invtr_list = eda.return_non_stnry_invtr_list(test_ads,'INVERTER_ID')
+test_ads = eda.make_ads_stnry(test_ads,non_stnry_invtr_list,'INVERTER_ID')
+
+trial_df = train_ads.loc[train_ads['INVERTER_ID']==invtr_list[0],]
+
+#running it in isolated mode first
+try_model,try_metric = get_optimal_lag(trial_df,192,0.8,'isolated')
+
+#running the pipeline in cumulative mode
+#better performance as compared to before but still did not cross 80% on validation dataset
+try_model,try_metric = get_optimal_lag(trial_df,192,0.8,'cumulative')
+
+

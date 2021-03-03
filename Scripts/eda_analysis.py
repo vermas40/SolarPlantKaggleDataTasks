@@ -17,6 +17,19 @@ from constants import CORR_THRESHOLD, OUTLIER_METHOD, ATTR, TIME_VARIANT_ATTR, \
                       TIME_INVARIANT_ATTR, SPLIT_PCT
 
 def train_test_split(df,panel_id_col,split_pct):
+    '''
+    This function does train-test split at a panel level dividing each panel into training and testing
+    observations depending on the split percentage
+
+    Input
+    1. df: pandas dataframe, this is the ads that needs to be split
+    2. panel_id_col: str, this is the column name that has panel IDs
+    3. split_pct: float, contains the percentage split
+
+    Return
+    1. train_data: pandas dataframe, dataset that is to be used for training
+    2. test_data: pandas dataframe, dataset that is to be used for testing purposes
+    '''
     assert split_pct < 1, 'Split Percentage should be divided by 100'
     train_indices = []
     test_indices = []
@@ -34,9 +47,9 @@ def train_test_split(df,panel_id_col,split_pct):
 
 def box_plot(df, x_axis_attribute, cluster_name):
     '''
-    This function creates a box plot for each cluster in the data one attribute by attribute
+    This function creates a box plot for each panel ID 
     df: the dataset that will be used for plotting
-    attribute_name: the column that will be plotted
+    x_axis_attribute: the column that will be plotted
     cluster_name: the column that identifies the different clusters present in the data
     '''
     fig = px.box(df, 
@@ -75,6 +88,13 @@ def box_plot(df, x_axis_attribute, cluster_name):
     return 
 
 def line_plot(df, x_axis_attribute, y_axis_attribute, panel_id_col):
+    '''
+    This function makes line plots for each panel in the dataset
+    Input
+    1. df: Pandas dataframe, this is the ads
+    2. attributes: both x and y attributes are supplied. They can be a list (when plotting 2 lines) or str
+    3. panel_id_col: str, it is the column name that contains the panel IDs
+    '''
     if type(y_axis_attribute) != str:
         text_for_y_axis = ' & '.join(y_axis_attribute)
     else:
@@ -139,6 +159,11 @@ def line_plot(df, x_axis_attribute, y_axis_attribute, panel_id_col):
 def pick_pacf(df):
     '''
     This function returns the lags in the timeseries which are highly correlated with the original timeseries
+    Input
+    1. df: pandas series, this is the column for which we are trying to find AR lag
+
+    Return
+    1. lags: list, this contain the list of all the lags (# of timestamps) that are highly correlated
     '''
     pacf_values = pacf(df.values)
     lags = [obs_index for obs_index, obs in enumerate(pacf_values) if abs(round(obs,1)) >= CORR_THRESHOLD]
@@ -146,6 +171,16 @@ def pick_pacf(df):
     return lags   
 
 def correlated_var(df, target_variable):
+    '''
+    This function finds all the variables that are highly correlated with the target variable
+    
+    Input:
+    1. df: pandas dataframe, this is the ads
+    2. target_variable: str, the variable name with which we want to find correlation
+
+    return:
+    corr_var: list, list of variables that are highly correlated with the target variable
+    '''
     corr_df = df.corr().reset_index()
     corr_df = pd.melt(corr_df, id_vars = 'index', var_name = 'variable 2', value_name = 'corr_val')
     corr_var = corr_df.loc[(abs(corr_df['corr_val']) > CORR_THRESHOLD) & (abs(corr_df['corr_val']!=1)) & (corr_df['index'] == target_variable),]
@@ -153,6 +188,9 @@ def correlated_var(df, target_variable):
     return corr_var
 
 def get_box_plot(df):
+    '''
+    This funciton creates box plots for all the columns and panels present in the data
+    '''
     for variable in df.columns:
         for i in range(0,df['INVERTER_ID'].nunique(),6):
             box_plot(df.loc[df['INVERTER_ID'].isin(df['INVERTER_ID'].unique()[i:i+6].tolist()),], variable, 'INVERTER_ID')
@@ -161,13 +199,23 @@ def get_box_plot(df):
 def adf_kpss_test(df):
 
     '''
+    This function conducts the ADS and KPSS tests for stationarity
+    --------------
     Case 1: Both tests conclude that the series is not stationary - The series is not stationary
     Case 2: Both tests conclude that the series is stationary - The series is stationary
     Case 3: KPSS indicates stationarity and ADF indicates non-stationarity - The series is trend stationary. 
     Trend needs to be removed to make series strict stationary. The detrended series is checked for stationarity.
     Case 4: KPSS indicates non-stationarity and ADF indicates stationarity - The series is difference stationary.
     Differencing is to be used to make series stationary. The differenced series is checked for stationarity.
+    ---------------
+
+    Input:
+    1. df: pandas series, the series which we want to test if it is stationary or not
+
+    Return:
+    1. 0/1: 0 means stationary, 1 means non-stationary
     '''
+
     p_value_kpss = kpss(df)[1]
     p_value_adf = adfuller(df)[1]
 
@@ -188,6 +236,14 @@ def return_non_stnry_invtr_list(df,panel_id_col):
     '''
     This function takes ADS as input and panel_id column name 
     and return the list of those panels which have even one attribute non stationary
+
+    Input
+    1. df: pandas dataframe, this is the ads
+    2. panel_id_col: str, this is the column name of the column containing the panel IDs in the ads
+
+    Return:
+    stnry_check_ads: pandas dataframe, index is panel IDs and for each panel and for each time series, we get
+    to know if it is stationary or not
     '''
     stnry_check_ads = df[TIME_VARIANT_ATTR + [panel_id_col]].groupby(panel_id_col).agg(lambda x: adf_kpss_test(x))
     stnry_ads_list = stnry_check_ads.apply(sum,axis=1)
@@ -196,32 +252,49 @@ def return_non_stnry_invtr_list(df,panel_id_col):
     stnry_check_ads = stnry_check_ads.loc[stnry_check_ads.index.isin(stnry_ads_list),]
     return stnry_check_ads
 
-def make_series_stnry(df):
+def make_series_stnry(df,date_col):
     '''
     This function makes a series stationary by continuous differencing
+
+    Input:
+    1. df: pandas series, the series that has to be differenced
+    2. date_col: str, the name of the column that contains the dates in the ads
+
+    Return:
+    1. df: pandas series, series that is stationary
     '''
     result = 1
-    df.set_index(['DATE'],inplace=True)
+    df.set_index([date_col],inplace=True)
     while result != 0:
         df = df.diff().dropna()
         result = adf_kpss_test(df)
     return df
 
-def make_ads_stnry(df,stnry_check_ads,panel_id_col):
+def make_ads_stnry(df,stnry_check_ads,panel_id_col,date_col):
     '''
     This function goes inverter by inverter and column by column 
     making each column in each inverter stationary (if not already)
+
+    Input:
+    1. df: pandas dataframe, this is the dataset that has to be made stationary
+    2. stnry_check_ads: pandas dataframe, this is the df that contains info on what all attributes are non
+    stationary for what all panels in the data
+    3. panel_id_col: str, this is the name of the column that contains the panel IDs in the data
+    4. date_col: str, this is the name of the column that contains the dates in the ads
+
+    Returns:
+    1. df: pandas dataframe, this is the ads that has all the attributes stationary
     '''
     while len(stnry_check_ads) != 0:
         for invtr in stnry_check_ads.index:
             for column in stnry_check_ads.columns:
                 if stnry_check_ads.loc[invtr,column] == 1:
-                    strct_stnry_ads = make_series_stnry(df.loc[df[panel_id_col] == invtr,[column,'DATE']])
+                    strct_stnry_ads = make_series_stnry(df.loc[df[panel_id_col] == invtr,[column,date_col]],date_col)
                     strct_stnry_ads.reset_index(inplace=True)
-                    drop_idx = df.loc[(~df['DATE'].isin(strct_stnry_ads['DATE']) & (df[panel_id_col]==invtr))].index
+                    drop_idx = df.loc[(~df[date_col].isin(strct_stnry_ads[date_col]) & (df[panel_id_col]==invtr))].index
                     df = df.drop(drop_idx)
                     #different indices make it very tough to just write values at certain places
-                    df.at[(df.DATE.isin(strct_stnry_ads['DATE'])) & (df[panel_id_col] == invtr),column] = strct_stnry_ads[column].to_list()
+                    df.at[(df.DATE.isin(strct_stnry_ads[date_col])) & (df[panel_id_col] == invtr),column] = strct_stnry_ads[column].to_list()
                     df.reset_index(drop=True,inplace=True)
         stnry_check_ads = return_non_stnry_invtr_list(df,panel_id_col)
     
@@ -267,11 +340,11 @@ if __name__ == '__main__':
     non_stnry_invtr_list = return_non_stnry_invtr_list(train_ads,'INVERTER_ID')
 
     #making sure all the time series in our dataset is stationary
-    train_ads = make_ads_stnry(train_ads,non_stnry_invtr_list,'INVERTER_ID')
+    train_ads = make_ads_stnry(train_ads,non_stnry_invtr_list,'INVERTER_ID','DATE')
 
     #repeating the process for test dataset as well
     non_stnry_invtr_list = return_non_stnry_invtr_list(test_ads,'INVERTER_ID')
-    test_ads = make_ads_stnry(test_ads,non_stnry_invtr_list,'INVERTER_ID')
+    test_ads = make_ads_stnry(test_ads,non_stnry_invtr_list,'INVERTER_ID','DATE')
 
     #skipped scatter plots since that information is captured through correlation
     #looking at the data using correlation values

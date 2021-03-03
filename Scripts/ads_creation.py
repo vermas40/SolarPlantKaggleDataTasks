@@ -8,6 +8,11 @@ os.chdir(r'//Users//mac_air//Documents//Documents//Side Projects//Kaggle_Anomaly
 def merge_data(plant_name):
     '''
     This function creates the ads for a plant
+    Input:
+    1. plant_name: Takes in the plant name as specified in the csv files for both the plants
+
+    Return:
+    ads: Merged dataset of generation ads and sensor ads with their dates formatted properly
     '''
 
     #reading in the file
@@ -26,6 +31,15 @@ def merge_data(plant_name):
     return ads
 
 def create_daily_yield(df):
+    '''
+    This function creates per timestamp yield generated at the plant using total yield column
+
+    Input:
+    1. df: pandas dataframe with all the required columns
+
+    Return:
+    1. df: pandas dataframe with the per timestamp yield
+    '''
     df['PER_TS_YIELD'] = np.nan
     yield_df = df.groupby('INVERTER_ID')['TOTAL_YIELD'].agg(lambda x: list(x.diff())).to_frame().reset_index()
 
@@ -35,6 +49,9 @@ def create_daily_yield(df):
     return df
 
 def create_features(df):
+    '''
+    This function just calls the daily yield function as well as renames the date column
+    '''
     #creating per timestamp yield
     df = create_daily_yield(df)
     df = df.rename(columns={'DATE_TIME':'DATE'})
@@ -46,12 +63,22 @@ def missing_value_treatment(df):
     then the next value can be rightly picked up as the value
 
     2. Filling the rest of the missing values with 0
+
+    Input:
+    1. df: pandas dataframe that is subsetted for one inverter ID only
+
+    Return:
+    1. df: input pandas dataframe + missing values treated through forward filling and imputation with 0
     '''
     df.ffill(inplace=True)    
     df.fillna(0, inplace=True)
     return df
 
 def create_ads():
+    '''
+    This is a wrapper function for all the other functions in this module to ease ads creation 
+    in other modules
+    '''
     #creating ads for plant 1 and plant 2
     ads = pd.DataFrame()
     #merging sensor and weather data
