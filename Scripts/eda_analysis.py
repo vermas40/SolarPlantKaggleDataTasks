@@ -4,7 +4,7 @@ import os
 import plotly.express as px
 import plotly.graph_objects as go
 import matplotlib.pyplot as plt
-from statsmodels.tsa.stattools import pacf, adfuller, kpss
+from statsmodels.tsa.stattools import acf,pacf, adfuller, kpss
 from scipy import stats
 import warnings
 warnings.filterwarnings('ignore')
@@ -156,19 +156,49 @@ def line_plot(df, x_axis_attribute, y_axis_attribute, panel_id_col):
 
     return 
 
-def pick_pacf(df):
+def pick_pacf(df,alpha=0.05,nlags=192):
     '''
     This function returns the lags in the timeseries which are highly correlated with the original timeseries
     Input
     1. df: pandas series, this is the column for which we are trying to find AR lag
+    2. metric: str, what metric to be calculated - acf/pacf
+    3. alpha: float, confidence interval
+    4. nlags: int, the no. of lags to be tested
 
     Return
     1. lags: list, this contain the list of all the lags (# of timestamps) that are highly correlated
     '''
-    pacf_values = pacf(df.values)
-    lags = [obs_index for obs_index, obs in enumerate(pacf_values) if abs(round(obs,1)) >= CORR_THRESHOLD]
+    
+
+    values,conf_int = pacf(df.values,alpha=alpha,nlags=nlags)
+
+    lags = []
+    #in the pacf function, confidence interval is centered around pacf values
+    #we need them to be centered around 0, this will produce the intervals we see in the graph
+    conf_int_cntrd = [value[0] - value[1] for value in zip(conf_int,values)]
+    for obs_index, obs in enumerate(zip(conf_int_cntrd,values)):
+        if obs[1] >= obs[0][1]: #obs[0][1] contains the high value of the conf int
+            lags.append(obs_index)
+        elif obs[1] <= obs[0][0]: #obs[0][0] contains the low value of the conf_int
+            lags.append(obs_index)
     lags.remove(0) #removing the 0 lag for auto-corr with itself
-    return lags   
+    return lags 
+
+def pick_acf(df,nlags=192):
+    '''
+    This funciton takes returns the ACF value for a MA model for a time series
+
+    Input
+    1. df: pandas series, this is the series for which we want to find ACF value
+    2. nlags: the number of lags to be taken into consideration for ACF
+
+    Returns
+    1. The lags value at which ACF cuts off
+    '''
+    acf_values = acf(df.values)
+    acf_values = np.round(acf_values,1)
+    q = np.where(acf_values == 0)[0][0]
+    return [q]
 
 def correlated_var(df, target_variable):
     '''
@@ -323,10 +353,11 @@ if __name__ == '__main__':
     #and -ve side outliers to 20-25%
     #found using the check_ptile function
 
+    outlier_feature = [feature for feature in ATTR if feature != 'TOTAL_YIELD'] 
     clip_model = wz.winsorize(OUTLIER_METHOD)
-    clip_model.fit(train_ads,'INVERTER_ID')
-    train_ads = clip_model.transform(train_ads)
-    test_ads = clip_model.transform(test_ads)
+    clip_model.fit(train_ads[outlier_feature],'INVERTER_ID')
+    train_ads[outlier_feature] = clip_model.transform(train_ads[outlier_feature])
+    test_ads[outlier_feature] = clip_model.transform(test_ads[outlier_feature])
 
     #lets create line plots for each inverter again to see the target variable without any outliers
     #we see much better graphs
@@ -357,3 +388,5 @@ if __name__ == '__main__':
     #getting too many lag values when aggregating to a day level
     #not enough data points, therefore pacf is not that reliable at a day level, however at 15 min mark it is
     lag_values = train_ads[['INVERTER_ID','PER_TS_YIELD']].groupby('INVERTER_ID').agg(lambda x: pick_pacf(x))
+
+    acf_values = train_ads[['INVERTER_ID','PER_TS_YIELD']].groupby('INVERTER_ID').agg(lambda x: pick_acf(x))
