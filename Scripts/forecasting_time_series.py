@@ -50,7 +50,7 @@ train_ads = eda.make_ads_stnry(train_ads,non_stnry_invtr_list,'INVERTER_ID','DAT
 non_stnry_invtr_list = eda.return_non_stnry_invtr_list(test_ads,'INVERTER_ID')
 test_ads = eda.make_ads_stnry(test_ads,non_stnry_invtr_list,'INVERTER_ID','DATE')
 
-lag_values = train_ads[['INVERTER_ID','PER_TS_YIELD']].groupby('INVERTER_ID').agg(lambda x: eda.pick_pacf(x))
+lag_values = train_ads[['INVERTER_ID','PER_TS_YIELD']].groupby('INVERTER_ID').agg(lambda x: eda.pick_pacf(x,nlags=40))
 acf_values = train_ads[['INVERTER_ID','PER_TS_YIELD']].groupby('INVERTER_ID').agg(lambda x: eda.pick_acf(x))
 
 #Experiment 1
