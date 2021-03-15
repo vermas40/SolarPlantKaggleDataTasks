@@ -227,6 +227,14 @@ def get_box_plot(df):
             box_plot(df.loc[df['INVERTER_ID'].isin(df['INVERTER_ID'].unique()[i:i+6].tolist()),], variable, 'INVERTER_ID')
     return 
 
+def get_box_plot_kaggle(df):
+    '''
+    This funciton creates box plots for all the columns and panels present in the data
+    '''
+    for variable in df.columns:
+        box_plot(df, variable, 'INVERTER_ID')
+    return 
+
 def adf_kpss_test(df):
 
     '''
