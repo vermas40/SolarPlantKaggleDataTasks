@@ -3,7 +3,7 @@ import pandas as pd
 import os
 from datetime import datetime
 import numpy as np
-os.chdir(r'//Users//mac_air//Documents//Documents//Side Projects//Kaggle_Anomaly_Detection')
+os.chdir(r'//kaggle//solar-panel-scripts//')
 
 from constants import IDENTIFIERS
 def merge_data(plant_name):
