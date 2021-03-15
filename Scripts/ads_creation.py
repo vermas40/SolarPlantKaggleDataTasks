@@ -17,7 +17,7 @@ def merge_data(plant_name):
     '''
 
     #reading in the file
-    path = '//Users//mac_air//Documents//Documents//Side Projects//Kaggle_Anomaly_Detection'
+    path = os.getcwd()
     gen_data = pd.read_csv(path + '/data/{}_Generation_Data.csv'.format(plant_name))
     #formatting the date to date formate
     gen_data['DATE_TIME'] = gen_data['DATE_TIME'].apply(lambda x: datetime.strptime(x, "%d-%m-%Y %H:%M"))
