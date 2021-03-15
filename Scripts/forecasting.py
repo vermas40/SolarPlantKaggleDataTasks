@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import os
 import plotly.express as px
+from sklearn.cluster import KMeans
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, mean_absolute_percentage_error
 from sklearn.preprocessing import StandardScaler
@@ -15,6 +16,7 @@ import eda_analysis as eda
 import feature_engg as feat_engg
 import winsorize as wz
 import regression as regr
+import clustering as clst
 from constants import ATTR, OUTLIER_METHOD, TIME_INVARIANT_ATTR, TIME_VARIANT_ATTR, SPLIT_PCT
 
 def create_ts_list(df,date_col):
@@ -125,7 +127,19 @@ def get_optimal_lag(train_df,init_lag,pass_threshold,mode,panel_id_col,model_obj
     return models,metrics
 
 def fwd_step_rf_model(train_df,test_df,model_dict,panel_name):
-    
+    '''
+    This function implements a perseverence model i.e. predicts 15 min in advance then uses that prediction 
+    to churn out one more prediction
+
+    Input
+    1. train_df: pandas dataframe, training dataset
+    2. test_df: pandas dataframe, testing dataset
+    3. model_dict: dictionary, dict containing the prediciton models
+    4. panel_name: str, string containing panel name for which the model will be run
+
+    Returns:
+    1. predicitions: list, which contains the predicitons made for 2 days
+    '''
     predictions = []
     scaler = StandardScaler()
     scaler.fit(train_df.values.reshape(-1,1))
@@ -143,6 +157,14 @@ def fwd_step_rf_model(train_df,test_df,model_dict,panel_name):
     return predictions
 
 def act_vs_fcst(y_true,y_pred,date_series):
+    '''
+    This function plots actuals vs forecasts
+
+    Input
+    1. y_true: pandas series, ground truth
+    2. y_pred: pandas series, predictions
+    3. date_series: pandas series, series with the dates
+    '''
     actual_df = pd.DataFrame({'DATE':date_series, 'Panel':'Actual',
                         'Actual':y_true})
     pred_df = pd.DataFrame({'DATE':date_series, 'Panel':'Predicted',
@@ -150,11 +172,20 @@ def act_vs_fcst(y_true,y_pred,date_series):
 
     plot_df = pd.concat([actual_df,pred_df])
     fig = px.line(plot_df,'DATE',['Actual','Predicted'])
-    fig.show()
+    fig.show("svg")
 
     return
 
 def remove_anomaly(df):
+    '''
+    This function removes instances wherein we have irradiation but AC power is 0
+
+    Input:
+    1. df: pandas dataframe, dataset containing noise
+
+    Returns:
+    df: pandas dataframe, dataset that is clean
+    '''
     anam_idx = df.index[(df['IRRADIATION'] != 0) & (df['AC_POWER'] == 0)]
     df = df.drop(anam_idx)
     return df
@@ -199,7 +230,8 @@ if __name__ == '__main__':
     features = [feature + '_lag_192' for feature in TIME_VARIANT_ATTR]
     features = features + TIME_INVARIANT_ATTR
 
-    models,metrics = regr.panel_wise_model(train_ads_exp,test_ads_exp,'INVERTER_ID','PER_TS_YIELD',features=features)
+    models,metrics = regr.panel_wise_model(train_ads_exp,test_ads_exp,'INVERTER_ID','PER_TS_YIELD',
+                                            RandomForestRegressor(random_state = 42),features=features)
 
 
     low_acc_invtr = [(key,metrics[key][3]) for key in metrics.keys() if metrics[key][3] < 0.8]
@@ -234,7 +266,9 @@ if __name__ == '__main__':
         models,metrics = regr.panel_wise_model(train_ads_exp.loc[train_ads_exp['INVERTER_ID']==invertor,],
                                                 test_ads_exp.loc[test_ads_exp['INVERTER_ID']==invertor,],
                                                 'INVERTER_ID',
-                                                'PER_TS_YIELD',features=feat_set)
+                                                'PER_TS_YIELD',
+                                                RandomForestRegressor(random_state=42),
+                                                features=feat_set)
         print('Added metric for :',invertor)
         metrics_rfe[invertor] = metrics[invertor]
 
@@ -330,7 +364,7 @@ if __name__ == '__main__':
     #running the below loop to give us the number of clusters that are optimal for this clustering exercise
     #10 clusters are coming out to be most optimal, so lets go ahead witthat
 
-    n_clust = get_n_clusters(train_ads_clst.loc[:,~train_ads_clst.columns.isin(IDENTIFIERS)],2,11)
+    n_clust = clst.get_n_clusters(train_ads_clst.loc[:,~train_ads_clst.columns.isin(IDENTIFIERS)],2,11)
 
     #kmeans clustering with 10 clusters
     clusterer = KMeans(n_clusters=n_clust, random_state=42)

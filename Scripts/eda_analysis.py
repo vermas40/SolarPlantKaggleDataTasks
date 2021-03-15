@@ -177,9 +177,9 @@ def pick_pacf(df,alpha=0.05,nlags=192):
     #we need them to be centered around 0, this will produce the intervals we see in the graph
     conf_int_cntrd = [value[0] - value[1] for value in zip(conf_int,values)]
     for obs_index, obs in enumerate(zip(conf_int_cntrd,values)):
-        if (obs[1] >= obs[0][1]):# & (obs[1] >= CORR_THRESHOLD): #obs[0][1] contains the high value of the conf int
+        if (obs[1] >= obs[0][1]) & (obs[1] >= CORR_THRESHOLD): #obs[0][1] contains the high value of the conf int
             lags.append(obs_index)
-        elif (obs[1] <= obs[0][0]):# & (obs[1] <= -1 * CORR_THRESHOLD): #obs[0][0] contains the low value of the conf_int
+        elif (obs[1] <= obs[0][0]) & (obs[1] <= -1 * CORR_THRESHOLD): #obs[0][0] contains the low value of the conf_int
             lags.append(obs_index)
     lags.remove(0) #removing the 0 lag for auto-corr with itself
     #keeping statistically significant and highly correlated lags
@@ -222,7 +222,7 @@ def get_box_plot(df):
     '''
     This funciton creates box plots for all the columns and panels present in the data
     '''
-    for variable in df.columns:
+    for variable in [column for column in df.columns if column != 'INVERTER_ID']:
         for i in range(0,df['INVERTER_ID'].nunique(),6):
             box_plot(df.loc[df['INVERTER_ID'].isin(df['INVERTER_ID'].unique()[i:i+6].tolist()),], variable, 'INVERTER_ID')
     return 
