@@ -77,7 +77,8 @@ class winsorize(object):
         if self.method == 'Z_SCR':
             df_mean = param_dict[2]
             df_std = param_dict[3]
-
+            
+            #to be vectorized
             for obs in df.index:
                 z_score = (df[obs] - df_mean)/df_std
                 if abs(z_score) > self.z_scr_thresh:
@@ -86,11 +87,18 @@ class winsorize(object):
                     else:
                         df.at[obs] = upper_lim
         else:        
-            for obs in df.index:
-                if df[obs] > upper_lim:
-                    df.at[obs] = upper_lim
-                elif df[obs] < lower_lim:
-                    df.at[obs] = lower_lim
+            #vectorized
+            upper_outliers = df.index[df > upper_lim].tolist()
+            df.at[upper_outliers] = upper_lim
+
+            lower_outliers = df.index[df < lower_lim].tolist()
+            df.at[lower_outliers] = lower_lim
+
+#            for obs in df.index:
+#                if df[obs] > upper_lim:
+#                    df.at[obs] = upper_lim
+#                elif df[obs] < lower_lim:
+#                    df.at[obs] = lower_lim
             
         return df
 

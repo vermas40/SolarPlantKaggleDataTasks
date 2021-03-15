@@ -5,6 +5,7 @@ from datetime import datetime
 import numpy as np
 os.chdir(r'//Users//mac_air//Documents//Documents//Side Projects//Kaggle_Anomaly_Detection')
 
+from constants import IDENTIFIERS
 def merge_data(plant_name):
     '''
     This function creates the ads for a plant
@@ -55,23 +56,42 @@ def create_features(df):
     #creating per timestamp yield
     df = create_daily_yield(df)
     df = df.rename(columns={'DATE_TIME':'DATE'})
+    #creating time of day flag
+    #night is 0, day is 1
+    df['TIME_OF_DAY'] = df['DATE'].apply(lambda x: 1 if x.hour in range(6,18) else 0)
+
     return df
 
+#data leak is happening in this function
 def missing_value_treatment(df):
     '''
-    1. Forward filling the missing values, assuming that if the sensor did not record the reading,
-    then the next value can be rightly picked up as the value
-
-    2. Filling the rest of the missing values with 0
-
     Input:
     1. df: pandas dataframe that is subsetted for one inverter ID only
 
     Return:
     1. df: input pandas dataframe + missing values treated through forward filling and imputation with 0
     '''
-    df.ffill(inplace=True)    
-    df.fillna(0, inplace=True)
+    #Forward filling all the identifier columns
+    df[IDENTIFIERS] = df[IDENTIFIERS].ffill()
+
+    #At night time, irradiation, ac & dc power are 0
+    night_idx = df.index[df['TIME_OF_DAY'] == 0].tolist()
+    df.at[night_idx,['IRRADIATION','DC_POWER','AC_POWER','PER_TS_YIELD']] = 0
+
+    #When there are no values, we assume that daily and total yield remains the same
+    df[['AMBIENT_TEMPERATURE','MODULE_TEMPERATURE','DAILY_YIELD','TOTAL_YIELD']] \
+        = df[['AMBIENT_TEMPERATURE','MODULE_TEMPERATURE','DAILY_YIELD','TOTAL_YIELD']].ffill()
+
+    #all the incidents when irradiation & per time stamp yield is na
+    #this would now be only day time
+    na_idx = df.index[(np.isnan(df['IRRADIATION'])) | (np.isnan(df['PER_TS_YIELD'])) == True].tolist()
+
+    #replacing the na values with average
+    #Making the assumption that during day time irradiation can be the average amount 
+    #consequently the power generated would also be average
+    for attribute in ['IRRADIATION','AC_POWER','DC_POWER','PER_TS_YIELD']:
+        df.at[na_idx,attribute] = df[attribute].mean()
+
     return df
 
 def create_ads():

@@ -177,11 +177,12 @@ def pick_pacf(df,alpha=0.05,nlags=192):
     #we need them to be centered around 0, this will produce the intervals we see in the graph
     conf_int_cntrd = [value[0] - value[1] for value in zip(conf_int,values)]
     for obs_index, obs in enumerate(zip(conf_int_cntrd,values)):
-        if obs[1] >= obs[0][1]: #obs[0][1] contains the high value of the conf int
+        if (obs[1] >= obs[0][1]):# & (obs[1] >= CORR_THRESHOLD): #obs[0][1] contains the high value of the conf int
             lags.append(obs_index)
-        elif obs[1] <= obs[0][0]: #obs[0][0] contains the low value of the conf_int
+        elif (obs[1] <= obs[0][0]):# & (obs[1] <= -1 * CORR_THRESHOLD): #obs[0][0] contains the low value of the conf_int
             lags.append(obs_index)
     lags.remove(0) #removing the 0 lag for auto-corr with itself
+    #keeping statistically significant and highly correlated lags
     return lags 
 
 def pick_acf(df,nlags=192):
@@ -197,7 +198,7 @@ def pick_acf(df,nlags=192):
     '''
     acf_values = acf(df.values)
     acf_values = np.round(acf_values,1)
-    q = np.where(acf_values == 0)[0][0]
+    q = np.where(acf_values <= 0.2)[0][0]
     return [q]
 
 def correlated_var(df, target_variable):

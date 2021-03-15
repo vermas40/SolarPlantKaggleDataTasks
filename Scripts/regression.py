@@ -16,7 +16,7 @@ import winsorize as wz
 from constants import ATTR, TIME_INVARIANT_ATTR, TIME_VARIANT_ATTR, SPLIT_PCT, OUTLIER_METHOD
 
 
-def panel_wise_model(train,test,panel_id_col,label,features=ATTR):
+def panel_wise_model(train,test,panel_id_col,label,model_obj,features=ATTR):
     '''
     This function creates one random forest model for each panel in ADS
     and returns 2 dictionaries housing the models and metrics
@@ -47,7 +47,7 @@ def panel_wise_model(train,test,panel_id_col,label,features=ATTR):
         test_df_scaled = scaler.transform(test_df[features])
         print('Modelling for panel:',panel)
 
-        model_dict[panel] = RandomForestRegressor(random_state=42)
+        model_dict[panel] = model_obj
         model_dict[panel].fit(train_df_scaled, train_df[label])
 
         y_pred = model_dict[panel].predict(test_df_scaled)
