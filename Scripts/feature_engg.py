@@ -96,7 +96,7 @@ def rfe_feature_selection(train_df,estimator,features,label,cv_folds=5):
     feature_set = [sel_feature[1] for sel_feature in zip(selector.ranking_,features) if sel_feature[0] == 1]
     
     return feature_set
-    
+  
 if __name__ == '__main__':
     #creating ads + outlier treatment
     ads = ads_crtn.create_ads()
