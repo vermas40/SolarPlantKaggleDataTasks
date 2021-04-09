@@ -3,6 +3,9 @@ import numpy as np
 import copy
 from statsmodels.tsa.stattools import acf,pacf, adfuller, kpss
 
+#user defined modules
+from constants import ATTR, OUTLIER_METHOD, TIME_INVARIANT_ATTR, TIME_VARIANT_ATTR, SPLIT_PCT
+
 #keep instance variables as instance variables EVERYWHERE!
 class stationarize(object):
 
@@ -133,13 +136,22 @@ class stationarize(object):
         
         return df
 
-    def inverse_series(self,diff_srs,org_srs=None):
-        order = self.diff_order[self.invtr][self.column]
-        nan_srs = pd.Series([np.nan for i in range(order)])
-        int_srs = pd.concat([nan_srs,diff_srs]).reset_index(drop=True)
+    def inverse_series(self,diff_srs,mode='Forecast',org_srs=None):
         
+        order = self.diff_order[self.invtr][self.column]        
         #this function keeps integrating the series till it reaches order 0 of differencing
-        while order != 0:
+        if mode == 'Forcast':
+            order_lim = 1
+            nan_srs_size = order - 1
+        else:
+            order_lim = 0
+            nan_srs_size = order
+        
+        
+        nan_srs = pd.Series([np.nan for i in range(nan_srs_size)])
+        int_srs = pd.concat([nan_srs,diff_srs]).reset_index(drop=True)
+
+        while order != order_lim:
             int_srs[order-1:] = int_srs[order-1:].cumsum().fillna(0) + self.init_value[self.invtr][self.column][order]
             order -= 1
 
@@ -147,12 +159,13 @@ class stationarize(object):
         #due to it being cut off because of some other series differencing
         #then the below code puts back the original values to the top of the 
         #integrated series
-        if len(int_srs) != len(org_srs): 
-            len_diff = len(org_srs) - len(int_srs)
-            pad_idx = [idx for idx in range(org_srs.index[0],org_srs.index[0] + len_diff)]
-            int_srs = pd.concat([org_srs[pad_idx].reset_index(drop=True),int_srs]).reset_index(drop=True)
-        
-        assert round(int_srs.sum(),3) == round(org_srs.sum(),3), 'Inverse logic not working'
+        if org_srs is not None:
+            if len(int_srs) != len(org_srs): 
+                len_diff = len(org_srs) - len(int_srs)
+                pad_idx = [idx for idx in range(org_srs.index[0],org_srs.index[0] + len_diff)]
+                int_srs = pd.concat([org_srs[pad_idx].reset_index(drop=True),int_srs]).reset_index(drop=True)
+            
+            assert round(int_srs.sum(),3) == round(org_srs.sum(),3), 'Inverse logic not working'
         
         return int_srs
 
@@ -177,3 +190,35 @@ class stationarize(object):
                 
                 self.non_stnry_ads.at[non_stnry_panel_idx,attribute] = int_srs.to_list()
         return self.non_stnry_ads
+
+    def inverse_transform_forecast(self,df,panel_id_col,attribute):
+        for key in self.diff_order.keys(): #going through all the panels that were differenced
+            forecast_name = attribute + '_fcst' 
+            if self.diff_order[key][attribute] != 0: 
+                if self.diff_order[key][attribute] > 1: #making every double/triple series into single differenced
+                    self.invtr = key
+                    self.column = attribute
+                    stnry_df_panel_idx = df.index[df[panel_id_col] == key]
+                    #here the second known value will be of actual and not predicted
+                    int_srs = self.inverse_series(df.loc[stnry_df_panel_idx,forecast_name]) 
+
+                #finding out the last known value of target variable from train data which is not differenced yet
+                panel_idx = self.non_stnry_ads.index[self.non_stnry_ads[panel_id_col] == key]
+                last_y_true_idx = panel_idx[len(panel_idx)-1]
+                last_y_true = self.non_stnry_ads.loc[last_y_true_idx,attribute] 
+                
+                #adding it on top of forecast of differences and then doing a cumulative sum
+                panel_idx = df.index[df[panel_id_col] == key]
+                y_pred = pd.concat([pd.Series([last_y_true]),df.loc[panel_idx,forecast_name]]).reset_index(drop=True)
+                #yt+1 = yt + zt+1
+                #therefore yt will not be a part of the series
+                y_pred = y_pred.cumsum()[1:]
+                df.at[panel_idx,forecast_name] = y_pred.to_list()
+        return df
+
+                    
+                
+                
+
+                
+
