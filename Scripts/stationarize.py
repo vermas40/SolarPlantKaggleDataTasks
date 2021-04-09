@@ -1,43 +1,7 @@
 import pandas as pd
 import numpy as np
 import copy
-import os
 from statsmodels.tsa.stattools import acf,pacf, adfuller, kpss
-
-os.chdir(r'//Users//mac_air//Documents//Documents//Side Projects//Kaggle_Anomaly_Detection//Scripts')
-import ads_creation as ads_crtn
-from constants import CORR_THRESHOLD, OUTLIER_METHOD, ATTR, TIME_VARIANT_ATTR, \
-                      TIME_INVARIANT_ATTR, SPLIT_PCT
-
-
-def train_test_split(df,panel_id_col,split_pct):
-    '''
-    This function does train-test split at a panel level dividing each panel into training and testing
-    observations depending on the split percentage
-
-    Input
-    1. df: pandas dataframe, this is the ads that needs to be split
-    2. panel_id_col: str, this is the column name that has panel IDs
-    3. split_pct: float, contains the percentage split
-
-    Return
-    1. train_data: pandas dataframe, dataset that is to be used for training
-    2. test_data: pandas dataframe, dataset that is to be used for testing purposes
-    '''
-    assert split_pct < 1, 'Split Percentage should be divided by 100'
-    train_indices = []
-    test_indices = []
-    for panel in df[panel_id_col].unique():
-        obs_index = df.loc[df[panel_id_col]==panel].index
-        train_upper_limit = int(split_pct * len(obs_index))
-        train_indices.append(obs_index[0:train_upper_limit])
-        test_indices.append(obs_index[train_upper_limit:len(obs_index)])
-    train_indices = [item for sublist in train_indices for item in sublist]
-    test_indices = [item for sublist in test_indices for item in sublist]
-
-    train_data = df.loc[train_indices,].reset_index(drop=True)
-    test_data = df.loc[test_indices,].reset_index(drop=True)
-    return train_data, test_data
 
 #keep instance variables as instance variables EVERYWHERE!
 class stationarize(object):
