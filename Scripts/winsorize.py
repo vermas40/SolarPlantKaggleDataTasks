@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import copy
 
 class winsorize(object):
     def __init__(self,method,z_scr_thresh=None):
@@ -72,6 +73,7 @@ class winsorize(object):
         This function checks at an obs level if it is an outlier or not, if it is then the value
         is clipped and it is given upper or lower limit value
         '''
+        df = copy.deepcopy(df.reset_index(drop=True))
         upper_lim = param_dict[0]
         lower_lim = param_dict[1]
         if self.method == 'Z_SCR':
@@ -93,12 +95,6 @@ class winsorize(object):
 
             lower_outliers = df.index[df < lower_lim].tolist()
             df.at[lower_outliers] = lower_lim
-
-#            for obs in df.index:
-#                if df[obs] > upper_lim:
-#                    df.at[obs] = upper_lim
-#                elif df[obs] < lower_lim:
-#                    df.at[obs] = lower_lim
             
         return df
 
@@ -108,5 +104,5 @@ class winsorize(object):
         '''
         for inverter in df[self.panel_id_col].unique():
             for attribute in self.datatypes['numeric']:
-                df.at[df[self.panel_id_col]==inverter,attribute] = self.treat_outliers(df.loc[df[self.panel_id_col]==inverter,attribute],self.params[inverter][attribute])
+                df.at[df[self.panel_id_col]==inverter,attribute] = self.treat_outliers(df.loc[df[self.panel_id_col]==inverter,attribute],self.params[inverter][attribute]).to_list()
         return df
