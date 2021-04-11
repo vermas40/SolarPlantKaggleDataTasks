@@ -3,9 +3,6 @@ import numpy as np
 import copy
 from statsmodels.tsa.stattools import acf,pacf, adfuller, kpss
 
-#user defined modules
-from constants import ATTR, OUTLIER_METHOD, TIME_INVARIANT_ATTR, TIME_VARIANT_ATTR, SPLIT_PCT
-
 #keep instance variables as instance variables EVERYWHERE!
 class stationarize(object):
 
